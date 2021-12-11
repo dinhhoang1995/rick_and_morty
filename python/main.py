@@ -17,7 +17,12 @@ except Error as e:
     print(f"Got following error while connecting to rick_and_morty database: {e}")
 
 
-def fetchall_records_in_table(query):
+def fetchall_records_in_table(query) -> list:
+    """
+    Fetch all records in a table
+    :param query: sql query to be executed
+    :return: list of records
+    """
     cursor = connection.cursor()
     cursor.execute(query)
     results = cursor.fetchall()
@@ -26,6 +31,10 @@ def fetchall_records_in_table(query):
 
 @app.get("/episodes")
 def get_all_episodes() -> list:
+    """
+    Get all episodes' info
+    :return: list of episodes info
+    """
     select_all_episodes_query = "SELECT * FROM episodes"
     try:
         results = fetchall_records_in_table(select_all_episodes_query)
@@ -46,6 +55,10 @@ def get_all_episodes() -> list:
 
 @app.get("/characters")
 def get_all_characters() -> list:
+    """
+    Get all characters' info
+    :return: list of characters' info
+    """
     select_all_characters_query = "SELECT * FROM characters"
     try:
         results = fetchall_records_in_table(select_all_characters_query)
