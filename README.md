@@ -18,6 +18,10 @@ Install requirements with the following cml:
 ```commandline
 pip3 install -q -r requirements.txt
 ```
+Install tests requirements with the following cml:
+```commandline
+pip3 install -q -r tests_requirements.txt
+```
 Format files with the following cml:
 ```commandline
 black -l 120 python
@@ -45,4 +49,16 @@ export DB_PWD="root"
 Run script with following cml:
 ```commandline
 python import_episodes_characters.py
+```
+
+## Run FastAPI server
+Run the server with:
+```commandline
+uvicorn main:app --reload
+```
+
+## Run pytest
+In python folder, run tests with:
+```commandline
+pytest tests
 ```
