@@ -78,8 +78,8 @@ else:
         CREATE TABLE comments(
             id INT NOT NULL AUTO_INCREMENT,
             username VARCHAR(100),
-            episode VARCHAR(100),
-            character_name VARCHAR(100),
+            episode_id INT,
+            character_id INT,
             comment LONGTEXT,
             PRIMARY KEY (id)
         )
