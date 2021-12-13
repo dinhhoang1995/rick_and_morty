@@ -16,9 +16,11 @@ except Error as e:
     print(f"Got following error while connecting to mysql: {e}")
 else:
     # create database
+    drop_db_query = "DROP DATABASE IF EXISTS rick_and_morty"
     create_db_query = "CREATE DATABASE rick_and_morty"
     try:
         with connection.cursor() as cursor:
+            cursor.execute(drop_db_query)
             cursor.execute(create_db_query)
         print("Database rick_and_morty has been successfully created.")
     except Error as e:
@@ -58,6 +60,27 @@ else:
             type VARCHAR(100),
             gender VARCHAR(100),
             episode JSON,
+            PRIMARY KEY (id)
+        )
+        """
+
+    # users table
+    create_users_table_query = """
+        CREATE TABLE users(
+            username VARCHAR(100) NOT NULL,
+            password CHAR(100),
+            PRIMARY KEY (username)
+        )
+        """
+
+    # comments table
+    create_comments_table_query = """
+        CREATE TABLE comments(
+            id INT NOT NULL AUTO_INCREMENT,
+            username VARCHAR(100),
+            episode VARCHAR(100),
+            character_name VARCHAR(100),
+            comment LONGTEXT,
             PRIMARY KEY (id)
         )
         """
@@ -110,6 +133,16 @@ else:
             cursor.execute("""DROP TABLE IF EXISTS characters""")
             cursor.execute(create_characters_table_query)
             print("Characters table has been successfully created.")
+
+            # create users table
+            cursor.execute("""DROP TABLE IF EXISTS users""")
+            cursor.execute(create_users_table_query)
+            print("Users table has been successfully created.")
+
+            # create comments table
+            cursor.execute("""DROP TABLE IF EXISTS comments""")
+            cursor.execute(create_comments_table_query)
+            print("Comments table has been successfully created.")
 
             # Insert episodes records to episodes table
             cursor.executemany(insert_episodes_query, episodes_records)

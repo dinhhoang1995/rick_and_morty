@@ -12,7 +12,7 @@ class TestMainApi:
     class TestGetAllEpisodes:
         def test_get_all_episodes(self, mocker):
             mocker.patch(
-                "python.main.fetchall_records_in_table",
+                "python.main.execute_query",
                 return_value=[
                     (1, "Pilot", "December 2, 2013", "S01E01", "[1,2]"),
                     (2, "Pilot2", "December 3, 2013", "S01E02", "[3,4]"),
@@ -29,7 +29,7 @@ class TestMainApi:
             mock_exc = Future()
             mock_exc.set_exception(Error("fake message"))
             mocker.patch(
-                "python.main.fetchall_records_in_table",
+                "python.main.execute_query",
                 side_effect=mock_exc,
             )
             response = client.get("/episodes")
@@ -39,7 +39,7 @@ class TestMainApi:
     class TestGetAllCharacters:
         def test_get_all_characters(self, mocker):
             mocker.patch(
-                "python.main.fetchall_records_in_table",
+                "python.main.execute_query",
                 return_value=[
                     (1, "Bob", "Alive", "Human", "", "Male", "[1,2]"),
                     (2, "Alice", "Dead", "Alien", "Superwoman", "Female", "[1,3]"),
@@ -72,7 +72,7 @@ class TestMainApi:
             mock_exc = Future()
             mock_exc.set_exception(Error("fake message"))
             mocker.patch(
-                "python.main.fetchall_records_in_table",
+                "python.main.execute_query",
                 side_effect=mock_exc,
             )
             response = client.get("/characters")
