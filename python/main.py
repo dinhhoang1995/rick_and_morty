@@ -27,14 +27,28 @@ def fetchall_results(query) -> list:
     :return: list of records
     """
     try:
-        results = execute_query(query)
+        results = execute_query_and_fetch_all(query)
     except Error as e:
         raise HTTPException(status_code=500, detail=f"Error while fetching records: {e}")
     else:
         return results
 
 
-def execute_query(query) -> list:
+def insert_into_table(query) -> int:
+    """
+    Insert a record into a table
+    :param query: sql query to be executed
+    :return: id
+    """
+    try:
+        record_id = execute_query_and_return_id(query)
+    except Error as e:
+        raise HTTPException(status_code=500, detail=f"Error while inserting record: {e}")
+    else:
+        return record_id
+
+
+def execute_query_and_fetch_all(query) -> list:
     """
     Execute query
     :param query: sql query to be executed
@@ -43,7 +57,21 @@ def execute_query(query) -> list:
     cursor = connection.cursor()
     cursor.execute(query)
     results = cursor.fetchall()
+    connection.commit()
     return results
+
+
+def execute_query_and_return_id(query) -> int:
+    """
+    Execute query and return last id
+    :param query: sql query to be executed
+    :return: id
+    """
+    cursor = connection.cursor()
+    cursor.execute(query)
+    record_id = cursor.lastrowid
+    connection.commit()
+    return record_id
 
 
 # episodes api
@@ -183,3 +211,51 @@ def delete_user(username: str) -> str:
     select_username_query = f"DELETE FROM users WHERE username = '{username}'"
     fetchall_results(select_username_query)
     return f"{username} has been deleted."
+
+
+# comments api
+class CommentBody(BaseModel):
+    username: str
+    comment: str
+
+
+@app.post("/comments/episodes/{episode_id}")
+def create_comment_episode(body: CommentBody, episode_id: int) -> int:
+    """
+    Create comment on an episode
+    :param episode_id: episode id
+    :param body: body config
+    :return: comment_id
+    """
+    select_user_exists_query = f"SELECT EXISTS(SELECT username FROM users WHERE username = '{body.username}')"
+    if fetchall_results(select_user_exists_query)[0][0] == 0:
+        raise HTTPException(status_code=404, detail="Username does not exist.")
+    select_episode_id_exists_query = f"SELECT EXISTS(SELECT id FROM episodes WHERE id = '{episode_id}')"
+    if fetchall_results(select_episode_id_exists_query)[0][0] == 0:
+        raise HTTPException(status_code=404, detail="Episode does not exist.")
+    insert_comment_query = f"INSERT INTO comments (username, episode_id, comment) VALUES ('{body.username}', '{episode_id}', '{body.comment}')"
+    return insert_into_table(insert_comment_query)
+
+
+@app.get("/comments/episodes/{episode_id}")
+def get_all_comments_of_an_episode(episode_id: int) -> list:
+    """
+    Get all comments of an episode
+    :param episode_id: episode id
+    :return: list of comments
+    """
+    select_episode_id_exists_query = f"SELECT EXISTS(SELECT id FROM episodes WHERE id = '{episode_id}')"
+    if fetchall_results(select_episode_id_exists_query)[0][0] == 0:
+        raise HTTPException(status_code=404, detail="Episode does not exist.")
+    select_all_comments_of_episode_query = f"SELECT * FROM comments WHERE episode_id = '{episode_id}'"
+    results = fetchall_results(select_all_comments_of_episode_query)
+    return [
+        {
+            "id": id,
+            "username": username,
+            "episode_id": episode_id,
+            "character_id": character_id,
+            "comment": comment,
+        }
+        for id, username, episode_id, character_id, comment in results
+    ]
