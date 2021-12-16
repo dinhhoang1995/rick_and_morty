@@ -1,6 +1,7 @@
 import ast
 import os
 import re
+from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -238,6 +239,17 @@ class UpdateCommentBody(BaseModel):
     comment: str
 
 
+class Comment(BaseModel):
+    id: int
+    username: str
+    episode_id: Optional[int]
+    character_id: Optional[int]
+    comment: str
+
+    class Config:
+        validate_assignment = True
+
+
 @app.post("/comments/episodes/{episode_id}")
 def create_comment_episode(body: CommentBody, episode_id: int) -> int:
     """
@@ -298,7 +310,7 @@ def create_comment_on_character_in_episode(body: CommentBody, episode_id: int, c
 
 
 @app.put("/comments/{comment_id}")
-def update_comment_by_id(comment_id: int, body: UpdateCommentBody) -> dict:
+def update_comment_by_id(comment_id: int, body: UpdateCommentBody):
     """
     Update comment by id
     :param comment_id: comment id
@@ -313,21 +325,13 @@ def update_comment_by_id(comment_id: int, body: UpdateCommentBody) -> dict:
     select_comment_query = f"SELECT * FROM comments WHERE id = '{comment_id}'"
     results = fetchall_results(select_comment_query)
     id, username, episode_id, character_id, comment = results[0]
-    return {
-        "id": id,
-        "username": username,
-        "episode_id": episode_id,
-        "character_id": character_id,
-        "comment": comment,
-    }
-
-
-class Comment(BaseModel):
-    id: int
-    username: str
-    episode_id: int
-    character_id: int
-    comment: str
+    return Comment(
+        id=id,
+        username=username,
+        episode_id=episode_id,
+        character_id=character_id,
+        comment=comment,
+    )
 
 
 @app.get("/comments", response_model=Page[Comment])
@@ -434,7 +438,7 @@ def get_all_comments_of_character_in_episode(episode_id: int, character_id: int)
 
 
 @app.get("/comments/{comment_id}")
-def get_comment_by_id(comment_id: int) -> dict:
+def get_comment_by_id(comment_id: int):
     """
     Get comment by id
     :param comment_id: comment id
@@ -446,13 +450,13 @@ def get_comment_by_id(comment_id: int) -> dict:
     select_comment_query = f"SELECT * FROM comments WHERE id = '{comment_id}'"
     results = fetchall_results(select_comment_query)
     id, username, episode_id, character_id, comment = results[0]
-    return {
-        "id": id,
-        "username": username,
-        "episode_id": episode_id,
-        "character_id": character_id,
-        "comment": comment,
-    }
+    return Comment(
+        id=id,
+        username=username,
+        episode_id=episode_id,
+        character_id=character_id,
+        comment=comment,
+    )
 
 
 @app.delete("/comments/{comment_id}")
