@@ -51,10 +51,10 @@ Run script with following cml:
 python import_episodes_characters.py
 ```
 
-## Run FastAPI server
+## Run API server
 Run the server with:
 ```commandline
-uvicorn main:app --reload
+python main.py
 ```
 
 ## Run pytest

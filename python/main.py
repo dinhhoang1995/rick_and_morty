@@ -2,10 +2,12 @@ import ast
 import os
 import re
 
+import uvicorn
 from fastapi import FastAPI, HTTPException
 from mysql.connector import connect, Error
 from pydantic import BaseModel
 
+from fastapi_pagination import Page, add_pagination, paginate
 
 app = FastAPI()
 try:
@@ -75,47 +77,60 @@ def execute_query_and_return_id(query) -> int:
 
 
 # episodes api
+class Episode(BaseModel):
+    id: int
+    name: str
+    air_date: str
+    episode: str
+    characters: list
+
+
 @app.get("/episodes")
 def get_all_episodes() -> list:
     """
     Get all episodes' info
-    :return: list of episodes info
+    :return: list of episodes' info
     """
     select_all_episodes_query = "SELECT * FROM episodes"
     results = fetchall_results(select_all_episodes_query)
     return [
-        {
-            "id": id,
-            "name": name,
-            "air_date": air_date,
-            "episode": episode,
-            "characters": ast.literal_eval(characters),
-        }
+        Episode(id=id, name=name, air_date=air_date, episode=episode, characters=ast.literal_eval(characters))
         for id, name, air_date, episode, characters in results
     ]
 
 
 # characters api
-@app.get("/characters")
-def get_all_characters() -> list:
+class Character(BaseModel):
+    id: int
+    name: str
+    status: str
+    species: str
+    type: str
+    gender: str
+    episode: list
+
+
+@app.get("/characters", response_model=Page[Character])
+def get_all_characters():
     """
     Get all characters' info
-    :return: list of characters' info
+    :return: page of characters' info
     """
     select_all_characters_query = "SELECT * FROM characters"
     results = fetchall_results(select_all_characters_query)
-    return [
-        {
-            "id": id,
-            "name": name,
-            "status": status,
-            "species": species,
-            "type": type,
-            "gender": gender,
-            "episode": ast.literal_eval(episode),
-        }
+    characters = [
+        Character(
+            id=id,
+            name=name,
+            status=status,
+            species=species,
+            type=type,
+            gender=gender,
+            episode=ast.literal_eval(episode),
+        )
         for id, name, status, species, type, gender, episode in results
     ]
+    return paginate(characters)
 
 
 # users api
@@ -307,81 +322,92 @@ def update_comment_by_id(comment_id: int, body: UpdateCommentBody) -> dict:
     }
 
 
-@app.get("/comments")
-def get_all_comments() -> list:
+class Comment(BaseModel):
+    id: int
+    username: str
+    episode_id: int
+    character_id: int
+    comment: str
+
+
+@app.get("/comments", response_model=Page[Comment])
+def get_all_comments():
     """
     Get all comments
-    :return: list of comments
+    :return: page of comments
     """
     select_all_comments_query = f"SELECT * FROM comments"
     results = fetchall_results(select_all_comments_query)
-    return [
-        {
-            "id": id,
-            "username": username,
-            "episode_id": episode_id,
-            "character_id": character_id,
-            "comment": comment,
-        }
+    comments = [
+        Comment(
+            id=id,
+            username=username,
+            episode_id=episode_id,
+            character_id=character_id,
+            comment=comment,
+        )
         for id, username, episode_id, character_id, comment in results
     ]
+    return paginate(comments)
 
 
-@app.get("/comments/episodes/{episode_id}")
-def get_all_comments_of_an_episode(episode_id: int) -> list:
+@app.get("/comments/episodes/{episode_id}", response_model=Page[Comment])
+def get_all_comments_of_an_episode(episode_id: int):
     """
     Get all comments of an episode
     :param episode_id: episode id
-    :return: list of comments
+    :return: page of comments
     """
     select_episode_id_exists_query = f"SELECT EXISTS(SELECT id FROM episodes WHERE id = '{episode_id}')"
     if fetchall_results(select_episode_id_exists_query)[0][0] == 0:
         raise HTTPException(status_code=404, detail="Episode does not exist.")
     select_all_comments_of_episode_query = f"SELECT * FROM comments WHERE episode_id = '{episode_id}'"
     results = fetchall_results(select_all_comments_of_episode_query)
-    return [
-        {
-            "id": id,
-            "username": username,
-            "episode_id": episode_id,
-            "character_id": character_id,
-            "comment": comment,
-        }
+    comments = [
+        Comment(
+            id=id,
+            username=username,
+            episode_id=episode_id,
+            character_id=character_id,
+            comment=comment,
+        )
         for id, username, episode_id, character_id, comment in results
     ]
+    return paginate(comments)
 
 
-@app.get("/comments/characters/{character_id}")
-def get_all_comments_of_a_character(character_id: int) -> list:
+@app.get("/comments/characters/{character_id}", response_model=Page[Comment])
+def get_all_comments_of_a_character(character_id: int):
     """
     Get all comments of a character
     :param character_id: character id
-    :return: list of comments
+    :return: page of comments
     """
     select_character_id_exists_query = f"SELECT EXISTS(SELECT id FROM characters WHERE id = '{character_id}')"
     if fetchall_results(select_character_id_exists_query)[0][0] == 0:
         raise HTTPException(status_code=404, detail="Character does not exist.")
     select_all_comments_of_character_query = f"SELECT * FROM comments WHERE character_id = '{character_id}'"
     results = fetchall_results(select_all_comments_of_character_query)
-    return [
-        {
-            "id": id,
-            "username": username,
-            "episode_id": episode_id,
-            "character_id": character_id,
-            "comment": comment,
-        }
+    comments = [
+        Comment(
+            id=id,
+            username=username,
+            episode_id=episode_id,
+            character_id=character_id,
+            comment=comment,
+        )
         for id, username, episode_id, character_id, comment in results
     ]
+    return paginate(comments)
 
 
-@app.get("/comments/episodes/{episode_id}/{character_id}")
-def get_all_comments_of_character_in_episode(episode_id: int, character_id: int) -> list:
+@app.get("/comments/episodes/{episode_id}/{character_id}", response_model=Page[Comment])
+def get_all_comments_of_character_in_episode(episode_id: int, character_id: int):
     """
     Get all comments of a character in an episode
     :param character_id: character id
     :param episode_id: episode id
-    :return: list of comments
+    :return: page of comments
     """
     select_episode_id_exists_query = f"SELECT EXISTS(SELECT id FROM episodes WHERE id = '{episode_id}')"
     if fetchall_results(select_episode_id_exists_query)[0][0] == 0:
@@ -394,16 +420,17 @@ def get_all_comments_of_character_in_episode(episode_id: int, character_id: int)
         f"SELECT * FROM comments WHERE episode_id = '{episode_id}' and character_id = '{character_id}'"
     )
     results = fetchall_results(select_all_comments_of_character_in_episode_query)
-    return [
-        {
-            "id": id,
-            "username": username,
-            "episode_id": episode_id,
-            "character_id": character_id,
-            "comment": comment,
-        }
+    comments = [
+        Comment(
+            id=id,
+            username=username,
+            episode_id=episode_id,
+            character_id=character_id,
+            comment=comment,
+        )
         for id, username, episode_id, character_id, comment in results
     ]
+    return paginate(comments)
 
 
 @app.get("/comments/{comment_id}")
@@ -438,3 +465,10 @@ def delete_comment_by_id(comment_id: int) -> str:
     select_comment_query = f"DELETE FROM comments WHERE id = '{comment_id}'"
     fetchall_results(select_comment_query)
     return f"Comment id {comment_id} has been deleted."
+
+
+add_pagination(app)
+
+
+if __name__ == "__main__":
+    uvicorn.run("main:app")
