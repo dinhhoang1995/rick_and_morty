@@ -47,26 +47,31 @@ class TestMainApi:
             )
             response = client.get("/characters")
             assert response.status_code == 200
-            assert response.json() == [
-                {
-                    "id": 1,
-                    "name": "Bob",
-                    "status": "Alive",
-                    "species": "Human",
-                    "type": "",
-                    "gender": "Male",
-                    "episode": [1, 2],
-                },
-                {
-                    "id": 2,
-                    "name": "Alice",
-                    "status": "Dead",
-                    "species": "Alien",
-                    "type": "Superwoman",
-                    "gender": "Female",
-                    "episode": [1, 3],
-                },
-            ]
+            assert response.json() == {
+                "items": [
+                    {
+                        "id": 1,
+                        "name": "Bob",
+                        "status": "Alive",
+                        "species": "Human",
+                        "type": "",
+                        "gender": "Male",
+                        "episode": [1, 2],
+                    },
+                    {
+                        "id": 2,
+                        "name": "Alice",
+                        "status": "Dead",
+                        "species": "Alien",
+                        "type": "Superwoman",
+                        "gender": "Female",
+                        "episode": [1, 3],
+                    },
+                ],
+                "total": 2,
+                "page": 1,
+                "size": 50,
+            }
 
         def test_get_all_characters_error(self, mocker):
             mock_exc = Future()

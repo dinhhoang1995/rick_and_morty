@@ -112,12 +112,38 @@ class Character(BaseModel):
 
 
 @app.get("/characters", response_model=Page[Character])
-def get_all_characters():
+def get_all_characters(
+    status: Optional[str] = None,
+    species: Optional[str] = None,
+    type: Optional[str] = None,
+    gender: Optional[str] = None,
+    episode_id: Optional[int] = None,
+):
     """
     Get all characters' info
     :return: page of characters' info
     """
     select_all_characters_query = "SELECT * FROM characters"
+    filters = {}
+    if status:
+        filters["status"] = status
+    if species:
+        filters["species"] = species
+    if type:
+        filters["type"] = type
+    if gender:
+        filters["gender"] = gender
+    if episode_id:
+        filters["episode_id"] = episode_id
+    if filters:
+        select_all_characters_query += " WHERE"
+        for key, value in filters.items():
+            if key == "episode_id":
+                select_all_characters_query += f" JSON_CONTAINS(episode, '{episode_id}', '$') AND"
+            else:
+                select_all_characters_query += f" {key}='{value}' AND"
+        select_all_characters_query = select_all_characters_query[:-4]
+
     results = fetchall_results(select_all_characters_query)
     characters = [
         Character(
@@ -335,12 +361,14 @@ def update_comment_by_id(comment_id: int, body: UpdateCommentBody):
 
 
 @app.get("/comments", response_model=Page[Comment])
-def get_all_comments():
+def get_all_comments(username: Optional[str] = None):
     """
     Get all comments
     :return: page of comments
     """
     select_all_comments_query = f"SELECT * FROM comments"
+    if username:
+        select_all_comments_query += f" WHERE username='{username}'"
     results = fetchall_results(select_all_comments_query)
     comments = [
         Comment(
@@ -356,9 +384,10 @@ def get_all_comments():
 
 
 @app.get("/comments/episodes/{episode_id}", response_model=Page[Comment])
-def get_all_comments_of_an_episode(episode_id: int):
+def get_all_comments_of_an_episode(episode_id: int, username: Optional[str] = None):
     """
     Get all comments of an episode
+    :param username:
     :param episode_id: episode id
     :return: page of comments
     """
@@ -366,6 +395,8 @@ def get_all_comments_of_an_episode(episode_id: int):
     if fetchall_results(select_episode_id_exists_query)[0][0] == 0:
         raise HTTPException(status_code=404, detail="Episode does not exist.")
     select_all_comments_of_episode_query = f"SELECT * FROM comments WHERE episode_id = '{episode_id}'"
+    if username:
+        select_all_comments_of_episode_query += f" AND username='{username}'"
     results = fetchall_results(select_all_comments_of_episode_query)
     comments = [
         Comment(
@@ -381,9 +412,10 @@ def get_all_comments_of_an_episode(episode_id: int):
 
 
 @app.get("/comments/characters/{character_id}", response_model=Page[Comment])
-def get_all_comments_of_a_character(character_id: int):
+def get_all_comments_of_a_character(character_id: int, username: Optional[str] = None):
     """
     Get all comments of a character
+    :param username:
     :param character_id: character id
     :return: page of comments
     """
@@ -391,6 +423,8 @@ def get_all_comments_of_a_character(character_id: int):
     if fetchall_results(select_character_id_exists_query)[0][0] == 0:
         raise HTTPException(status_code=404, detail="Character does not exist.")
     select_all_comments_of_character_query = f"SELECT * FROM comments WHERE character_id = '{character_id}'"
+    if username:
+        select_all_comments_of_character_query += f" AND username='{username}'"
     results = fetchall_results(select_all_comments_of_character_query)
     comments = [
         Comment(
@@ -406,9 +440,10 @@ def get_all_comments_of_a_character(character_id: int):
 
 
 @app.get("/comments/episodes/{episode_id}/{character_id}", response_model=Page[Comment])
-def get_all_comments_of_character_in_episode(episode_id: int, character_id: int):
+def get_all_comments_of_character_in_episode(episode_id: int, character_id: int, username: Optional[str] = None):
     """
     Get all comments of a character in an episode
+    :param username:
     :param character_id: character id
     :param episode_id: episode id
     :return: page of comments
@@ -421,8 +456,10 @@ def get_all_comments_of_character_in_episode(episode_id: int, character_id: int)
     if not results or character_id not in ast.literal_eval(results[0][0]):
         raise HTTPException(status_code=404, detail=f"Character id {character_id} is not in episode id {episode_id}.")
     select_all_comments_of_character_in_episode_query = (
-        f"SELECT * FROM comments WHERE episode_id = '{episode_id}' and character_id = '{character_id}'"
+        f"SELECT * FROM comments WHERE episode_id = '{episode_id}' AND character_id = '{character_id}'"
     )
+    if username:
+        select_all_comments_of_character_in_episode_query += f" AND username='{username}'"
     results = fetchall_results(select_all_comments_of_character_in_episode_query)
     comments = [
         Comment(
