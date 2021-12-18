@@ -5,3 +5,4 @@ uvicorn[standard]
 fastapi-pagination
 python-jose[cryptography]
 python-multipart
+pandas

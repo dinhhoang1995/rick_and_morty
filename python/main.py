@@ -4,6 +4,8 @@ import re
 from datetime import timedelta, datetime
 from typing import Optional
 
+import io
+import pandas
 import uvicorn
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
@@ -11,53 +13,69 @@ from jose import jwt, JWTError
 from mysql.connector import connect, Error
 from pydantic import BaseModel
 
+from fastapi.responses import StreamingResponse
 from fastapi_pagination import Page, add_pagination, paginate
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-app = FastAPI()
-try:
-    connection = connect(
+
+
+class Api(FastAPI):
+    def __init__(self, db_connection):
+        super().__init__()
+        self.db_connection = db_connection
+
+    def get_db_connection(self):
+        return self.db_connection
+
+    def set_db_connection(self, new_db_connection):
+        self.db_connection = new_db_connection
+
+
+app = Api(
+    db_connection=connect(
         host=os.getenv("DB_HOST", "localhost"),
         port=int(os.getenv("DB_PORT", "3306")),
         user=os.getenv("DB_USER", "root"),
         password=os.getenv("DB_PWD", "root"),
         database=os.getenv("DB_NAME", "rick_and_morty"),
     )
-except Error as e:
-    print(f"Got following error while connecting to rick_and_morty database: {e}")
+)
 
 
-def fetchall_results(query) -> list:
+def fetchall_results(query, connection) -> list:
     """
     Fetch all records in a table
+    :param connection: database connection
     :param query: sql query to be executed
     :return: list of records
     """
     try:
-        results = execute_query_and_fetch_all(query)
+        results = execute_query_and_fetch_all(query, connection)
     except Error as e:
         raise HTTPException(status_code=500, detail=f"Error while fetching records: {e}")
     else:
         return results
 
 
-def insert_into_table(query) -> int:
+def insert_into_table(query, connection) -> int:
     """
     Insert a record into a table
+    :param connection: database connection
     :param query: sql query to be executed
     :return: id
     """
     try:
-        record_id = execute_query_and_return_id(query)
+        record_id = execute_query_and_return_id(query, connection)
     except Error as e:
         raise HTTPException(status_code=500, detail=f"Error while inserting record: {e}")
     else:
         return record_id
 
 
-def execute_query_and_fetch_all(query) -> list:
+def execute_query_and_fetch_all(query, connection) -> list:
     """
     Execute query
+    :param connection: database connection
     :param query: sql query to be executed
     :return: list of records
     """
@@ -68,9 +86,10 @@ def execute_query_and_fetch_all(query) -> list:
     return results
 
 
-def execute_query_and_return_id(query) -> int:
+def execute_query_and_return_id(query, connection) -> int:
     """
     Execute query and return last id
+    :param connection: database connection
     :param query: sql query to be executed
     :return: id
     """
@@ -117,9 +136,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 
-def authenticate_user(username: str, password: str):
+def authenticate_user(username: str, password: str, connection):
     select_username_query = f"SELECT * FROM users WHERE username = '{username}'"
-    users = fetchall_results(select_username_query)
+    users = fetchall_results(select_username_query, connection)
     if not users:
         return False
     username_in_db, password_in_db = users[0]
@@ -143,7 +162,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     except JWTError:
         raise credentials_exception
     select_username_query = f"SELECT * FROM users WHERE username = '{token_data.username}'"
-    users = fetchall_results(select_username_query)
+    users = fetchall_results(select_username_query, app.get_db_connection())
     if users is None:
         raise credentials_exception
     username_in_db, password_in_db = users[0]
@@ -152,7 +171,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 
 @app.post("/token", response_model=Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = authenticate_user(form_data.username, form_data.password)
+    user = authenticate_user(form_data.username, form_data.password, app.get_db_connection())
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -171,7 +190,7 @@ def get_all_users(current_user: User = Depends(get_current_user)) -> list:
     :return: list of users
     """
     select_all_users_query = "SELECT username FROM users"
-    results = fetchall_results(select_all_users_query)
+    results = fetchall_results(select_all_users_query, app.get_db_connection())
     return [result[0] for result in results]
 
 
@@ -189,11 +208,11 @@ def create_user(user: User, current_user: User = Depends(get_current_user)) -> s
             detail="Password must have minimum eight characters, at least one uppercase letter, one lowercase letter, one number and one special character.",
         )
     select_username_query = f"SELECT username FROM users WHERE username = '{user.username}'"
-    users = fetchall_results(select_username_query)
+    users = fetchall_results(select_username_query, app.get_db_connection())
     if users:
         raise HTTPException(status_code=409, detail="User exists.")
     insert_user_query = f"INSERT INTO users (username, password) VALUES ('{user.username}', '{user.password}')"
-    fetchall_results(insert_user_query)
+    fetchall_results(insert_user_query, app.get_db_connection())
     return user.username
 
 
@@ -205,7 +224,7 @@ def get_user(username: str, current_user: User = Depends(get_current_user)) -> d
     :return: dict of username
     """
     select_username_query = f"SELECT username FROM users WHERE username = '{username}'"
-    users = fetchall_results(select_username_query)
+    users = fetchall_results(select_username_query, app.get_db_connection())
     if not users:
         raise HTTPException(status_code=404, detail="User does not exist.")
     return {"username": users[0][0]}
@@ -226,13 +245,13 @@ def update_user(username: str, body: UpdatePassword, current_user: User = Depend
             detail="New password must have minimum eight characters, at least one uppercase letter, one lowercase letter, one number and one special character.",
         )
     select_user_query = f"SELECT * FROM users WHERE username = '{username}'"
-    users = fetchall_results(select_user_query)
+    users = fetchall_results(select_user_query, app.get_db_connection())
     if not users:
         raise HTTPException(status_code=404, detail="User does not exist.")
     if users[0][1] != body.old_password:
         raise HTTPException(status_code=400, detail="Old password is not correct")
     update_user_query = f"UPDATE users SET password = '{body.new_password}' WHERE username = '{username}'"
-    fetchall_results(update_user_query)
+    fetchall_results(update_user_query, app.get_db_connection())
     return {"username": username}
 
 
@@ -244,7 +263,7 @@ def delete_user(username: str, current_user: User = Depends(get_current_user)) -
     :return: delete message
     """
     select_username_query = f"DELETE FROM users WHERE username = '{username}'"
-    fetchall_results(select_username_query)
+    fetchall_results(select_username_query, app.get_db_connection())
     return f"{username} has been deleted."
 
 
@@ -264,7 +283,7 @@ def get_all_episodes(current_user: User = Depends(get_current_user)) -> list:
     :return: list of episodes' info
     """
     select_all_episodes_query = "SELECT * FROM episodes"
-    results = fetchall_results(select_all_episodes_query)
+    results = fetchall_results(select_all_episodes_query, app.get_db_connection())
     return [
         Episode(id=id, name=name, air_date=air_date, episode=episode, characters=ast.literal_eval(characters))
         for id, name, air_date, episode, characters in results
@@ -316,7 +335,7 @@ def get_all_characters(
                 select_all_characters_query += f" {key}='{value}' AND"
         select_all_characters_query = select_all_characters_query[:-4]
 
-    results = fetchall_results(select_all_characters_query)
+    results = fetchall_results(select_all_characters_query, app.get_db_connection())
     characters = [
         Character(
             id=id,
@@ -357,13 +376,13 @@ def create_comment_episode(body: CommentBody, episode_id: int, current_user: Use
     :return: comment_id
     """
     select_user_exists_query = f"SELECT EXISTS(SELECT username FROM users WHERE username = '{current_user.username}')"
-    if fetchall_results(select_user_exists_query)[0][0] == 0:
+    if fetchall_results(select_user_exists_query, app.get_db_connection())[0][0] == 0:
         raise HTTPException(status_code=404, detail="Username does not exist.")
     select_episode_id_exists_query = f"SELECT EXISTS(SELECT id FROM episodes WHERE id = '{episode_id}')"
-    if fetchall_results(select_episode_id_exists_query)[0][0] == 0:
+    if fetchall_results(select_episode_id_exists_query, app.get_db_connection())[0][0] == 0:
         raise HTTPException(status_code=404, detail="Episode does not exist.")
     insert_comment_query = f"INSERT INTO comments (username, episode_id, comment) VALUES ('{current_user.username}', '{episode_id}', '{body.comment}')"
-    return insert_into_table(insert_comment_query)
+    return insert_into_table(insert_comment_query, app.get_db_connection())
 
 
 @app.post("/comments/characters/{character_id}")
@@ -377,13 +396,13 @@ def create_comment_character(
     :return: comment_id
     """
     select_user_exists_query = f"SELECT EXISTS(SELECT username FROM users WHERE username = '{current_user.username}')"
-    if fetchall_results(select_user_exists_query)[0][0] == 0:
+    if fetchall_results(select_user_exists_query, app.get_db_connection())[0][0] == 0:
         raise HTTPException(status_code=404, detail="Username does not exist.")
     select_character_id_exists_query = f"SELECT EXISTS(SELECT id FROM characters WHERE id = '{character_id}')"
-    if fetchall_results(select_character_id_exists_query)[0][0] == 0:
+    if fetchall_results(select_character_id_exists_query, app.get_db_connection())[0][0] == 0:
         raise HTTPException(status_code=404, detail="Episode does not exist.")
     insert_comment_query = f"INSERT INTO comments (username, character_id, comment) VALUES ('{current_user.username}', '{character_id}', '{body.comment}')"
-    return insert_into_table(insert_comment_query)
+    return insert_into_table(insert_comment_query, app.get_db_connection())
 
 
 @app.post("/comments/episodes/{episode_id}/{character_id}")
@@ -398,17 +417,17 @@ def create_comment_on_character_in_episode(
     :return: comment_id
     """
     select_user_exists_query = f"SELECT EXISTS(SELECT username FROM users WHERE username = '{current_user.username}')"
-    if fetchall_results(select_user_exists_query)[0][0] == 0:
+    if fetchall_results(select_user_exists_query, app.get_db_connection())[0][0] == 0:
         raise HTTPException(status_code=404, detail="Username does not exist.")
     select_episode_id_exists_query = f"SELECT EXISTS(SELECT id FROM episodes WHERE id = '{episode_id}')"
-    if fetchall_results(select_episode_id_exists_query)[0][0] == 0:
+    if fetchall_results(select_episode_id_exists_query, app.get_db_connection())[0][0] == 0:
         raise HTTPException(status_code=404, detail="Episode does not exist.")
     select_characters_in_episode_query = f"SELECT characters FROM episodes WHERE id = '{episode_id}'"
-    results = fetchall_results(select_characters_in_episode_query)
+    results = fetchall_results(select_characters_in_episode_query, app.get_db_connection())
     if not results or character_id not in ast.literal_eval(results[0][0]):
         raise HTTPException(status_code=404, detail=f"Character id {character_id} is not in episode id {episode_id}.")
     insert_comment_query = f"INSERT INTO comments (username, episode_id, character_id, comment) VALUES ('{current_user.username}', '{episode_id}', '{character_id}', '{body.comment}')"
-    return insert_into_table(insert_comment_query)
+    return insert_into_table(insert_comment_query, app.get_db_connection())
 
 
 @app.put("/comments/{comment_id}")
@@ -420,12 +439,12 @@ def update_comment_by_id(comment_id: int, body: CommentBody, current_user: User 
     :return: updated comment info
     """
     select_comment_id_exists_query = f"SELECT EXISTS(SELECT id FROM comments WHERE id = '{comment_id}')"
-    if fetchall_results(select_comment_id_exists_query)[0][0] == 0:
+    if fetchall_results(select_comment_id_exists_query, app.get_db_connection())[0][0] == 0:
         raise HTTPException(status_code=404, detail="Comment does not exist.")
     update_comment_query = f"UPDATE comments SET comment = '{body.comment}' WHERE id = '{comment_id}'"
-    fetchall_results(update_comment_query)
+    fetchall_results(update_comment_query, app.get_db_connection())
     select_comment_query = f"SELECT * FROM comments WHERE id = '{comment_id}'"
-    results = fetchall_results(select_comment_query)
+    results = fetchall_results(select_comment_query, app.get_db_connection())
     id, username, episode_id, character_id, comment = results[0]
     return Comment(
         id=id,
@@ -445,7 +464,7 @@ def get_all_comments(username: Optional[str] = None, current_user: User = Depend
     select_all_comments_query = f"SELECT * FROM comments"
     if username:
         select_all_comments_query += f" WHERE username='{username}'"
-    results = fetchall_results(select_all_comments_query)
+    results = fetchall_results(select_all_comments_query, app.get_db_connection())
     comments = [
         Comment(
             id=id,
@@ -470,12 +489,12 @@ def get_all_comments_of_an_episode(
     :return: page of comments
     """
     select_episode_id_exists_query = f"SELECT EXISTS(SELECT id FROM episodes WHERE id = '{episode_id}')"
-    if fetchall_results(select_episode_id_exists_query)[0][0] == 0:
+    if fetchall_results(select_episode_id_exists_query, app.get_db_connection())[0][0] == 0:
         raise HTTPException(status_code=404, detail="Episode does not exist.")
     select_all_comments_of_episode_query = f"SELECT * FROM comments WHERE episode_id = '{episode_id}'"
     if username:
         select_all_comments_of_episode_query += f" AND username='{username}'"
-    results = fetchall_results(select_all_comments_of_episode_query)
+    results = fetchall_results(select_all_comments_of_episode_query, app.get_db_connection())
     comments = [
         Comment(
             id=id,
@@ -500,12 +519,12 @@ def get_all_comments_of_a_character(
     :return: page of comments
     """
     select_character_id_exists_query = f"SELECT EXISTS(SELECT id FROM characters WHERE id = '{character_id}')"
-    if fetchall_results(select_character_id_exists_query)[0][0] == 0:
+    if fetchall_results(select_character_id_exists_query, app.get_db_connection())[0][0] == 0:
         raise HTTPException(status_code=404, detail="Character does not exist.")
     select_all_comments_of_character_query = f"SELECT * FROM comments WHERE character_id = '{character_id}'"
     if username:
         select_all_comments_of_character_query += f" AND username='{username}'"
-    results = fetchall_results(select_all_comments_of_character_query)
+    results = fetchall_results(select_all_comments_of_character_query, app.get_db_connection())
     comments = [
         Comment(
             id=id,
@@ -531,10 +550,10 @@ def get_all_comments_of_character_in_episode(
     :return: page of comments
     """
     select_episode_id_exists_query = f"SELECT EXISTS(SELECT id FROM episodes WHERE id = '{episode_id}')"
-    if fetchall_results(select_episode_id_exists_query)[0][0] == 0:
+    if fetchall_results(select_episode_id_exists_query, app.get_db_connection())[0][0] == 0:
         raise HTTPException(status_code=404, detail="Episode does not exist.")
     select_characters_in_episode_query = f"SELECT characters FROM episodes WHERE id = '{episode_id}'"
-    results = fetchall_results(select_characters_in_episode_query)
+    results = fetchall_results(select_characters_in_episode_query, app.get_db_connection())
     if not results or character_id not in ast.literal_eval(results[0][0]):
         raise HTTPException(status_code=404, detail=f"Character id {character_id} is not in episode id {episode_id}.")
     select_all_comments_of_character_in_episode_query = (
@@ -542,7 +561,7 @@ def get_all_comments_of_character_in_episode(
     )
     if username:
         select_all_comments_of_character_in_episode_query += f" AND username='{username}'"
-    results = fetchall_results(select_all_comments_of_character_in_episode_query)
+    results = fetchall_results(select_all_comments_of_character_in_episode_query, app.get_db_connection())
     comments = [
         Comment(
             id=id,
@@ -564,10 +583,10 @@ def get_comment_by_id(comment_id: int, current_user: User = Depends(get_current_
     :return: comment info
     """
     select_comment_id_exists_query = f"SELECT EXISTS(SELECT id FROM comments WHERE id = '{comment_id}')"
-    if fetchall_results(select_comment_id_exists_query)[0][0] == 0:
+    if fetchall_results(select_comment_id_exists_query, app.get_db_connection())[0][0] == 0:
         raise HTTPException(status_code=404, detail="Comment does not exist.")
     select_comment_query = f"SELECT * FROM comments WHERE id = '{comment_id}'"
-    results = fetchall_results(select_comment_query)
+    results = fetchall_results(select_comment_query, app.get_db_connection())
     id, username, episode_id, character_id, comment = results[0]
     return Comment(
         id=id,
@@ -586,8 +605,46 @@ def delete_comment_by_id(comment_id: int, current_user: User = Depends(get_curre
     :return: delete message
     """
     select_comment_query = f"DELETE FROM comments WHERE id = '{comment_id}'"
-    fetchall_results(select_comment_query)
+    fetchall_results(select_comment_query, app.get_db_connection())
     return f"Comment id {comment_id} has been deleted."
+
+
+# export comments api
+@app.get("/export_csv")
+def export_comments_csv(current_user: User = Depends(get_current_user)):
+    """
+    Export all comments to csv
+    :return: csv
+    """
+    select_all_comments_query = f"SELECT * FROM comments"
+    results = fetchall_results(select_all_comments_query, app.get_db_connection())
+    ids, usernames, episode_ids, character_ids, comments = [], [], [], [], []
+    for id, username, episode_id, character_id, comment in results:
+        ids.append(id)
+        usernames.append(username)
+        episode_ids.append(episode_id)
+        character_ids.append(character_id)
+        comments.append(comment)
+
+    df = pandas.DataFrame(
+        dict(
+            id=ids,
+            username=usernames,
+            episode_id=episode_ids,
+            character_id=character_ids,
+            comment=comments,
+        )
+    )
+
+    stream = io.StringIO()
+
+    df.to_csv(stream, index=False)
+
+    response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
+
+    response.headers["Content-Disposition"] = "attachment; filename=exported_comments.csv"
+
+    return response
 
 
 add_pagination(app)
