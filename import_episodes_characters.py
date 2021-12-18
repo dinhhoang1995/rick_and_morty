@@ -84,6 +84,9 @@ else:
             PRIMARY KEY (id)
         )
         """
+    add_admin_to_users_table_query = """
+        INSERT INTO users (username, password) VALUES ('admin', 'Abcd1234*')
+        """
 
     # episodes records
     insert_episodes_query = """
@@ -137,6 +140,7 @@ else:
             # create users table
             cursor.execute("""DROP TABLE IF EXISTS users""")
             cursor.execute(create_users_table_query)
+            cursor.execute(add_admin_to_users_table_query)
             print("Users table has been successfully created.")
 
             # create comments table

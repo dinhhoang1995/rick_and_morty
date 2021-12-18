@@ -44,6 +44,10 @@ Set database user password:
 ```commandline
 export DB_PWD="root"
 ```
+Set database name:
+```commandline
+export DB_NAME="rick_and_morty"
+```
 
 ## Create database and add tables
 Run script with following cml:

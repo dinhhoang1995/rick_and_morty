@@ -3,3 +3,5 @@ black
 fastapi
 uvicorn[standard]
 fastapi-pagination
+python-jose[cryptography]
+python-multipart

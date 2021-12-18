@@ -1,15 +1,19 @@
 import ast
 import os
 import re
+from datetime import timedelta, datetime
 from typing import Optional
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
+from jose import jwt, JWTError
 from mysql.connector import connect, Error
 from pydantic import BaseModel
 
 from fastapi_pagination import Page, add_pagination, paginate
 
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 app = FastAPI()
 try:
     connection = connect(
@@ -17,7 +21,7 @@ try:
         port=int(os.getenv("DB_PORT", "3306")),
         user=os.getenv("DB_USER", "root"),
         password=os.getenv("DB_PWD", "root"),
-        database="rick_and_morty",
+        database=os.getenv("DB_NAME", "rick_and_morty"),
     )
 except Error as e:
     print(f"Got following error while connecting to rick_and_morty database: {e}")
@@ -77,6 +81,173 @@ def execute_query_and_return_id(query) -> int:
     return record_id
 
 
+# users api
+SECRET_KEY = "ec19d5ef70c59aa77ac7a98ae47e2b9c1de31b9eae435cde874aaa4cd9a97f6d"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+
+class TokenData(BaseModel):
+    username: Optional[str] = None
+
+
+class User(BaseModel):
+    username: str
+    password: str
+
+
+class UpdatePassword(BaseModel):
+    old_password: str
+    new_password: str
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
+def authenticate_user(username: str, password: str):
+    select_username_query = f"SELECT * FROM users WHERE username = '{username}'"
+    users = fetchall_results(select_username_query)
+    if not users:
+        return False
+    username_in_db, password_in_db = users[0]
+    if password_in_db != password:
+        return False
+    return User(username=username_in_db, password=password_in_db)
+
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        token_data = TokenData(username=username)
+    except JWTError:
+        raise credentials_exception
+    select_username_query = f"SELECT * FROM users WHERE username = '{token_data.username}'"
+    users = fetchall_results(select_username_query)
+    if users is None:
+        raise credentials_exception
+    username_in_db, password_in_db = users[0]
+    return User(username=username_in_db, password=password_in_db)
+
+
+@app.post("/token", response_model=Token)
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = authenticate_user(form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(data={"sub": user.username}, expires_delta=access_token_expires)
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+@app.get("/users")
+def get_all_users(current_user: User = Depends(get_current_user)) -> list:
+    """
+    Get all users
+    :return: list of users
+    """
+    select_all_users_query = "SELECT username FROM users"
+    results = fetchall_results(select_all_users_query)
+    return [result[0] for result in results]
+
+
+@app.post("/users")
+def create_user(user: User, current_user: User = Depends(get_current_user)) -> str:
+    """
+    Create user
+    :param user: user config
+    :return: username
+    """
+    pat = re.compile(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$")
+    if re.fullmatch(pat, user.password) is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Password must have minimum eight characters, at least one uppercase letter, one lowercase letter, one number and one special character.",
+        )
+    select_username_query = f"SELECT username FROM users WHERE username = '{user.username}'"
+    users = fetchall_results(select_username_query)
+    if users:
+        raise HTTPException(status_code=409, detail="User exists.")
+    insert_user_query = f"INSERT INTO users (username, password) VALUES ('{user.username}', '{user.password}')"
+    fetchall_results(insert_user_query)
+    return user.username
+
+
+@app.get("/users/{username}")
+def get_user(username: str, current_user: User = Depends(get_current_user)) -> dict:
+    """
+    Get user
+    :param username: username
+    :return: dict of username
+    """
+    select_username_query = f"SELECT username FROM users WHERE username = '{username}'"
+    users = fetchall_results(select_username_query)
+    if not users:
+        raise HTTPException(status_code=404, detail="User does not exist.")
+    return {"username": users[0][0]}
+
+
+@app.put("/users/{username}")
+def update_user(username: str, body: UpdatePassword, current_user: User = Depends(get_current_user)) -> dict:
+    """
+    Update user
+    :param username: username
+    :param body: request body
+    :return: username
+    """
+    pat = re.compile(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$")
+    if re.fullmatch(pat, body.new_password) is None:
+        raise HTTPException(
+            status_code=400,
+            detail="New password must have minimum eight characters, at least one uppercase letter, one lowercase letter, one number and one special character.",
+        )
+    select_user_query = f"SELECT * FROM users WHERE username = '{username}'"
+    users = fetchall_results(select_user_query)
+    if not users:
+        raise HTTPException(status_code=404, detail="User does not exist.")
+    if users[0][1] != body.old_password:
+        raise HTTPException(status_code=400, detail="Old password is not correct")
+    update_user_query = f"UPDATE users SET password = '{body.new_password}' WHERE username = '{username}'"
+    fetchall_results(update_user_query)
+    return {"username": username}
+
+
+@app.delete("/users/{username}")
+def delete_user(username: str, current_user: User = Depends(get_current_user)) -> str:
+    """
+    Delete user
+    :param username: username
+    :return: delete message
+    """
+    select_username_query = f"DELETE FROM users WHERE username = '{username}'"
+    fetchall_results(select_username_query)
+    return f"{username} has been deleted."
+
+
 # episodes api
 class Episode(BaseModel):
     id: int
@@ -87,7 +258,7 @@ class Episode(BaseModel):
 
 
 @app.get("/episodes")
-def get_all_episodes() -> list:
+def get_all_episodes(current_user: User = Depends(get_current_user)) -> list:
     """
     Get all episodes' info
     :return: list of episodes' info
@@ -118,6 +289,7 @@ def get_all_characters(
     type: Optional[str] = None,
     gender: Optional[str] = None,
     episode_id: Optional[int] = None,
+    current_user: User = Depends(get_current_user),
 ):
     """
     Get all characters' info
@@ -160,108 +332,8 @@ def get_all_characters(
     return paginate(characters)
 
 
-# users api
-class User(BaseModel):
-    username: str
-    password: str
-
-
-class UpdatePassword(BaseModel):
-    old_password: str
-    new_password: str
-
-
-@app.get("/users")
-def get_all_users() -> list:
-    """
-    Get all users
-    :return: list of users
-    """
-    select_all_users_query = "SELECT username FROM users"
-    results = fetchall_results(select_all_users_query)
-    return [result[0] for result in results]
-
-
-@app.post("/users")
-def create_user(user: User) -> str:
-    """
-    Create user
-    :param user: user config
-    :return: username
-    """
-    pat = re.compile(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$")
-    if re.fullmatch(pat, user.password) is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Password must have minimum eight characters, at least one uppercase letter, one lowercase letter, one number and one special character.",
-        )
-    select_username_query = f"SELECT username FROM users WHERE username = '{user.username}'"
-    users = fetchall_results(select_username_query)
-    if users:
-        raise HTTPException(status_code=409, detail="User exists.")
-    insert_user_query = f"INSERT INTO users (username, password) VALUES ('{user.username}', '{user.password}')"
-    fetchall_results(insert_user_query)
-    return user.username
-
-
-@app.get("/users/{username}")
-def get_user(username: str) -> dict:
-    """
-    Get user
-    :param username: username
-    :return: dict of username
-    """
-    select_username_query = f"SELECT username FROM users WHERE username = '{username}'"
-    users = fetchall_results(select_username_query)
-    if not users:
-        raise HTTPException(status_code=404, detail="User does not exist.")
-    return {"username": users[0][0]}
-
-
-@app.put("/users/{username}")
-def update_user(username: str, body: UpdatePassword) -> dict:
-    """
-    Update user
-    :param username: username
-    :param body: request body
-    :return: username
-    """
-    pat = re.compile(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$")
-    if re.fullmatch(pat, body.new_password) is None:
-        raise HTTPException(
-            status_code=400,
-            detail="New password must have minimum eight characters, at least one uppercase letter, one lowercase letter, one number and one special character.",
-        )
-    select_user_query = f"SELECT * FROM users WHERE username = '{username}'"
-    users = fetchall_results(select_user_query)
-    if not users:
-        raise HTTPException(status_code=404, detail="User does not exist.")
-    if users[0][1] != body.old_password:
-        raise HTTPException(status_code=400, detail="Old password is not correct")
-    update_user_query = f"UPDATE users SET password = '{body.new_password}' WHERE username = '{username}'"
-    fetchall_results(update_user_query)
-    return {"username": username}
-
-
-@app.delete("/users/{username}")
-def delete_user(username: str) -> str:
-    """
-    Delete user
-    :param username: username
-    :return: delete message
-    """
-    select_username_query = f"DELETE FROM users WHERE username = '{username}'"
-    fetchall_results(select_username_query)
-    return f"{username} has been deleted."
-
-
 # comments api
 class CommentBody(BaseModel):
-    username: str
-    comment: str
-
-
-class UpdateCommentBody(BaseModel):
     comment: str
 
 
@@ -277,43 +349,47 @@ class Comment(BaseModel):
 
 
 @app.post("/comments/episodes/{episode_id}")
-def create_comment_episode(body: CommentBody, episode_id: int) -> int:
+def create_comment_episode(body: CommentBody, episode_id: int, current_user: User = Depends(get_current_user)) -> int:
     """
     Create comment on an episode
     :param episode_id: episode id
     :param body: body config
     :return: comment_id
     """
-    select_user_exists_query = f"SELECT EXISTS(SELECT username FROM users WHERE username = '{body.username}')"
+    select_user_exists_query = f"SELECT EXISTS(SELECT username FROM users WHERE username = '{current_user.username}')"
     if fetchall_results(select_user_exists_query)[0][0] == 0:
         raise HTTPException(status_code=404, detail="Username does not exist.")
     select_episode_id_exists_query = f"SELECT EXISTS(SELECT id FROM episodes WHERE id = '{episode_id}')"
     if fetchall_results(select_episode_id_exists_query)[0][0] == 0:
         raise HTTPException(status_code=404, detail="Episode does not exist.")
-    insert_comment_query = f"INSERT INTO comments (username, episode_id, comment) VALUES ('{body.username}', '{episode_id}', '{body.comment}')"
+    insert_comment_query = f"INSERT INTO comments (username, episode_id, comment) VALUES ('{current_user.username}', '{episode_id}', '{body.comment}')"
     return insert_into_table(insert_comment_query)
 
 
 @app.post("/comments/characters/{character_id}")
-def create_comment_character(body: CommentBody, character_id: int) -> int:
+def create_comment_character(
+    body: CommentBody, character_id: int, current_user: User = Depends(get_current_user)
+) -> int:
     """
     Create comment on a character
     :param character_id: character id
     :param body: body config
     :return: comment_id
     """
-    select_user_exists_query = f"SELECT EXISTS(SELECT username FROM users WHERE username = '{body.username}')"
+    select_user_exists_query = f"SELECT EXISTS(SELECT username FROM users WHERE username = '{current_user.username}')"
     if fetchall_results(select_user_exists_query)[0][0] == 0:
         raise HTTPException(status_code=404, detail="Username does not exist.")
     select_character_id_exists_query = f"SELECT EXISTS(SELECT id FROM characters WHERE id = '{character_id}')"
     if fetchall_results(select_character_id_exists_query)[0][0] == 0:
         raise HTTPException(status_code=404, detail="Episode does not exist.")
-    insert_comment_query = f"INSERT INTO comments (username, character_id, comment) VALUES ('{body.username}', '{character_id}', '{body.comment}')"
+    insert_comment_query = f"INSERT INTO comments (username, character_id, comment) VALUES ('{current_user.username}', '{character_id}', '{body.comment}')"
     return insert_into_table(insert_comment_query)
 
 
 @app.post("/comments/episodes/{episode_id}/{character_id}")
-def create_comment_on_character_in_episode(body: CommentBody, episode_id: int, character_id: int) -> int:
+def create_comment_on_character_in_episode(
+    body: CommentBody, episode_id: int, character_id: int, current_user: User = Depends(get_current_user)
+) -> int:
     """
     Create comment on an episode
     :param character_id: character id
@@ -321,7 +397,7 @@ def create_comment_on_character_in_episode(body: CommentBody, episode_id: int, c
     :param body: body config
     :return: comment_id
     """
-    select_user_exists_query = f"SELECT EXISTS(SELECT username FROM users WHERE username = '{body.username}')"
+    select_user_exists_query = f"SELECT EXISTS(SELECT username FROM users WHERE username = '{current_user.username}')"
     if fetchall_results(select_user_exists_query)[0][0] == 0:
         raise HTTPException(status_code=404, detail="Username does not exist.")
     select_episode_id_exists_query = f"SELECT EXISTS(SELECT id FROM episodes WHERE id = '{episode_id}')"
@@ -331,12 +407,12 @@ def create_comment_on_character_in_episode(body: CommentBody, episode_id: int, c
     results = fetchall_results(select_characters_in_episode_query)
     if not results or character_id not in ast.literal_eval(results[0][0]):
         raise HTTPException(status_code=404, detail=f"Character id {character_id} is not in episode id {episode_id}.")
-    insert_comment_query = f"INSERT INTO comments (username, episode_id, character_id, comment) VALUES ('{body.username}', '{episode_id}', '{character_id}', '{body.comment}')"
+    insert_comment_query = f"INSERT INTO comments (username, episode_id, character_id, comment) VALUES ('{current_user.username}', '{episode_id}', '{character_id}', '{body.comment}')"
     return insert_into_table(insert_comment_query)
 
 
 @app.put("/comments/{comment_id}")
-def update_comment_by_id(comment_id: int, body: UpdateCommentBody):
+def update_comment_by_id(comment_id: int, body: CommentBody, current_user: User = Depends(get_current_user)):
     """
     Update comment by id
     :param comment_id: comment id
@@ -361,7 +437,7 @@ def update_comment_by_id(comment_id: int, body: UpdateCommentBody):
 
 
 @app.get("/comments", response_model=Page[Comment])
-def get_all_comments(username: Optional[str] = None):
+def get_all_comments(username: Optional[str] = None, current_user: User = Depends(get_current_user)):
     """
     Get all comments
     :return: page of comments
@@ -384,7 +460,9 @@ def get_all_comments(username: Optional[str] = None):
 
 
 @app.get("/comments/episodes/{episode_id}", response_model=Page[Comment])
-def get_all_comments_of_an_episode(episode_id: int, username: Optional[str] = None):
+def get_all_comments_of_an_episode(
+    episode_id: int, username: Optional[str] = None, current_user: User = Depends(get_current_user)
+):
     """
     Get all comments of an episode
     :param username:
@@ -412,7 +490,9 @@ def get_all_comments_of_an_episode(episode_id: int, username: Optional[str] = No
 
 
 @app.get("/comments/characters/{character_id}", response_model=Page[Comment])
-def get_all_comments_of_a_character(character_id: int, username: Optional[str] = None):
+def get_all_comments_of_a_character(
+    character_id: int, username: Optional[str] = None, current_user: User = Depends(get_current_user)
+):
     """
     Get all comments of a character
     :param username:
@@ -440,7 +520,9 @@ def get_all_comments_of_a_character(character_id: int, username: Optional[str] =
 
 
 @app.get("/comments/episodes/{episode_id}/{character_id}", response_model=Page[Comment])
-def get_all_comments_of_character_in_episode(episode_id: int, character_id: int, username: Optional[str] = None):
+def get_all_comments_of_character_in_episode(
+    episode_id: int, character_id: int, username: Optional[str] = None, current_user: User = Depends(get_current_user)
+):
     """
     Get all comments of a character in an episode
     :param username:
@@ -475,7 +557,7 @@ def get_all_comments_of_character_in_episode(episode_id: int, character_id: int,
 
 
 @app.get("/comments/{comment_id}")
-def get_comment_by_id(comment_id: int):
+def get_comment_by_id(comment_id: int, current_user: User = Depends(get_current_user)):
     """
     Get comment by id
     :param comment_id: comment id
@@ -497,7 +579,7 @@ def get_comment_by_id(comment_id: int):
 
 
 @app.delete("/comments/{comment_id}")
-def delete_comment_by_id(comment_id: int) -> str:
+def delete_comment_by_id(comment_id: int, current_user: User = Depends(get_current_user)) -> str:
     """
     Delete comment by id
     :param comment_id: comment id
