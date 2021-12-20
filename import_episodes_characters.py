@@ -17,9 +17,11 @@ def main(argv):
         sys.exit(2)
     for opt, arg in opts:
         if opt in ("-h", "--help"):
-            print("python import_episodes_characters.py -n <dbname>\n"
-                  "Options:\n"
-                  "--test    Do not insert records to episodes and characters table")
+            print(
+                "python import_episodes_characters.py -n <dbname>\n"
+                "Options:\n"
+                "--test    Do not insert records to episodes and characters table"
+            )
             sys.exit()
         elif opt in ("-n", "--dbname"):
             db_name = arg
@@ -123,7 +125,12 @@ def main(argv):
             )
             for episode in episodes_list:
                 episodes_records.append(
-                    (episode.get("name"), episode.get("air_date"), episode.get("episode"), str(episode.get("characters")))
+                    (
+                        episode.get("name"),
+                        episode.get("air_date"),
+                        episode.get("episode"),
+                        str(episode.get("characters")),
+                    )
                 )
 
             # characters records
@@ -134,7 +141,9 @@ def main(argv):
                 """
             characters_records = []
             characters_list = json.load(
-                open(os.path.join(os.path.dirname(os.path.realpath(__file__)), "source", "rick_morty-characters_v1.json"))
+                open(
+                    os.path.join(os.path.dirname(os.path.realpath(__file__)), "source", "rick_morty-characters_v1.json")
+                )
             )
             for character in characters_list:
                 characters_records.append(
