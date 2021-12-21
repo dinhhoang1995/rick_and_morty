@@ -66,10 +66,6 @@ Set database name:
 ```commandline
 export TEST_DB_NAME="rick_and_morty_test"
 ```
-Run script to create test database:
-```commandline
-python import_episodes_characters.py -n rick_and_morty --test
-```
 In python folder, run tests with:
 ```commandline
 pytest tests

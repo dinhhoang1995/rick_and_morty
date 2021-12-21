@@ -1,4 +1,5 @@
 import os
+import subprocess
 from asyncio import Future
 
 import pytest
@@ -7,12 +8,16 @@ from mysql.connector import Error, connect
 
 from python.main import app
 
+database_name = os.getenv("TEST_DB_NAME", "rick_and_morty_test")
+
+subprocess.run(["python", "../../import_episodes_characters.py", "-n", database_name, "--test"])
+
 connection = connect(
     host=os.getenv("DB_HOST", "localhost"),
     port=int(os.getenv("DB_PORT", "3306")),
     user=os.getenv("DB_USER", "root"),
     password=os.getenv("DB_PWD", "root"),
-    database=os.getenv("TEST_DB_NAME", "rick_and_morty_test"),
+    database=database_name,
 )
 
 cursor = connection.cursor()
@@ -95,6 +100,29 @@ class TestMainApi:
                     },
                 ],
                 "total": 2,
+                "page": 1,
+                "size": 50,
+            }
+
+        def test_get_all_characters_with_filters(self, access_token):
+            response = client.get(
+                "/characters?status=Alive&species=Human&gender=Male&episode_id=1&page=1&siz=50",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            assert response.status_code == 200
+            assert response.json() == {
+                "items": [
+                    {
+                        "id": 1,
+                        "name": "Bob",
+                        "status": "Alive",
+                        "species": "Human",
+                        "type": "",
+                        "gender": "Male",
+                        "episode": [1, 2],
+                    }
+                ],
+                "total": 1,
                 "page": 1,
                 "size": 50,
             }
@@ -199,3 +227,405 @@ class TestMainApi:
             response = client.delete("/users/dhtran", headers={"Authorization": f"Bearer {access_token}"})
             assert response.status_code == 204
             assert response.text == '"dhtran has been deleted."'
+
+    class TestComments:
+        def test_create_comment_episode_not_found(self, access_token):
+            response = client.post(
+                "/comments/episodes/100",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"comment": "This is a comment"},
+            )
+            assert response.status_code == 404
+            assert response.json()["detail"] == "Episode does not exist."
+
+        def test_create_comment_episode_internal_error(self, mocker, access_token):
+            mock_exc = Future()
+            mock_exc.set_exception(Error("fake message"))
+            mocker.patch(
+                "python.main.execute_query_and_return_id",
+                side_effect=mock_exc,
+            )
+            response = client.post(
+                "/comments/episodes/1",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"comment": "This is a comment"},
+            )
+            assert response.status_code == 500
+            assert response.json()["detail"] == "Error while inserting record: fake message"
+
+        def test_create_comment_episode_success(self, access_token):
+            response = client.post(
+                "/comments/episodes/1",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"comment": "This is a comment"},
+            )
+            assert response.status_code == 201
+            assert response.text == "1"
+
+        def test_create_comment_character_not_found(self, access_token):
+            response = client.post(
+                "/comments/characters/1000",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"comment": "This is a comment"},
+            )
+            assert response.status_code == 404
+            assert response.json()["detail"] == "Character does not exist."
+
+        def test_create_comment_character_success(self, access_token):
+            response = client.post(
+                "/comments/characters/1",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"comment": "This is a comment"},
+            )
+            assert response.status_code == 201
+            assert response.text == "2"
+
+        def test_create_comment_on_character_in_episode_episode_not_found(self, access_token):
+            response = client.post(
+                "/comments/episodes/100/1",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"comment": "This is a comment"},
+            )
+            assert response.status_code == 404
+            assert response.json()["detail"] == "Episode does not exist."
+
+        def test_create_comment_on_character_in_episode_character_not_found(self, access_token):
+            response = client.post(
+                "/comments/episodes/1/100",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"comment": "This is a comment"},
+            )
+            assert response.status_code == 404
+            assert response.json()["detail"] == "Character id 100 is not in episode id 1."
+
+        def test_create_comment_on_character_in_episode_success(self, access_token):
+            response = client.post(
+                "/comments/episodes/1/1",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"comment": "This is a comment"},
+            )
+            assert response.status_code == 201
+            assert response.text == "3"
+
+        def test_update_comment_by_id_not_found(self, access_token):
+            response = client.put(
+                "/comments/10",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"comment": "This is a comment"},
+            )
+            assert response.status_code == 404
+            assert response.json()["detail"] == "Comment does not exist."
+
+        def test_update_comment_by_id_success(self, access_token):
+            response = client.put(
+                "/comments/1",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"comment": "This is a new comment"},
+            )
+            assert response.status_code == 200
+            assert response.json() == {
+                "id": 1,
+                "username": "admin",
+                "episode_id": 1,
+                "character_id": None,
+                "comment": "This is a new comment",
+            }
+
+        def test_get_all_comments_success(self, access_token):
+            response = client.get(
+                "/comments",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            assert response.status_code == 200
+            assert response.json() == {
+                "items": [
+                    {
+                        "id": 1,
+                        "username": "admin",
+                        "episode_id": 1,
+                        "character_id": None,
+                        "comment": "This is a new comment",
+                    },
+                    {
+                        "id": 2,
+                        "username": "admin",
+                        "episode_id": None,
+                        "character_id": 1,
+                        "comment": "This is a comment",
+                    },
+                    {
+                        "id": 3,
+                        "username": "admin",
+                        "episode_id": 1,
+                        "character_id": 1,
+                        "comment": "This is a comment",
+                    },
+                ],
+                "total": 3,
+                "page": 1,
+                "size": 50,
+            }
+
+        def test_get_all_comments_with_filter_on_existent_username(self, access_token):
+            response = client.get(
+                "/comments?username=admin",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            assert response.status_code == 200
+            assert response.json() == {
+                "items": [
+                    {
+                        "id": 1,
+                        "username": "admin",
+                        "episode_id": 1,
+                        "character_id": None,
+                        "comment": "This is a new comment",
+                    },
+                    {
+                        "id": 2,
+                        "username": "admin",
+                        "episode_id": None,
+                        "character_id": 1,
+                        "comment": "This is a comment",
+                    },
+                    {
+                        "id": 3,
+                        "username": "admin",
+                        "episode_id": 1,
+                        "character_id": 1,
+                        "comment": "This is a comment",
+                    },
+                ],
+                "total": 3,
+                "page": 1,
+                "size": 50,
+            }
+
+        def test_get_all_comments_with_filter_on_non_existent_username(self, access_token):
+            response = client.get(
+                "/comments?username=toto",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            assert response.status_code == 200
+            assert response.json() == {
+                "items": [],
+                "total": 0,
+                "page": 1,
+                "size": 50,
+            }
+
+        def test_get_all_comments_of_an_episode_not_found(self, access_token):
+            response = client.get(
+                "/comments/episodes/100",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            assert response.status_code == 404
+            assert response.json()["detail"] == "Episode does not exist."
+
+        def test_get_all_comments_of_an_episode_success(self, access_token):
+            response = client.get(
+                "/comments/episodes/1",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            assert response.status_code == 200
+            assert response.json() == {
+                "items": [
+                    {
+                        "id": 1,
+                        "username": "admin",
+                        "episode_id": 1,
+                        "character_id": None,
+                        "comment": "This is a new comment",
+                    },
+                    {
+                        "id": 3,
+                        "username": "admin",
+                        "episode_id": 1,
+                        "character_id": 1,
+                        "comment": "This is a comment",
+                    },
+                ],
+                "total": 2,
+                "page": 1,
+                "size": 50,
+            }
+
+        def test_get_all_comments_of_an_episode_with_filter_success(self, access_token):
+            response = client.get(
+                "/comments/episodes/1?username=admin",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            assert response.status_code == 200
+            assert response.json() == {
+                "items": [
+                    {
+                        "id": 1,
+                        "username": "admin",
+                        "episode_id": 1,
+                        "character_id": None,
+                        "comment": "This is a new comment",
+                    },
+                    {
+                        "id": 3,
+                        "username": "admin",
+                        "episode_id": 1,
+                        "character_id": 1,
+                        "comment": "This is a comment",
+                    },
+                ],
+                "total": 2,
+                "page": 1,
+                "size": 50,
+            }
+
+        def test_get_all_comments_of_a_character_not_found(self, access_token):
+            response = client.get(
+                "/comments/characters/1000",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            assert response.status_code == 404
+            assert response.json()["detail"] == "Character does not exist."
+
+        def test_get_all_comments_of_a_character_success(self, access_token):
+            response = client.get(
+                "/comments/characters/1",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            assert response.status_code == 200
+            assert response.json() == {
+                "items": [
+                    {
+                        "id": 2,
+                        "username": "admin",
+                        "episode_id": None,
+                        "character_id": 1,
+                        "comment": "This is a comment",
+                    },
+                    {
+                        "id": 3,
+                        "username": "admin",
+                        "episode_id": 1,
+                        "character_id": 1,
+                        "comment": "This is a comment",
+                    },
+                ],
+                "total": 2,
+                "page": 1,
+                "size": 50,
+            }
+
+        def test_get_all_comments_of_a_character_with_filter_success(self, access_token):
+            response = client.get(
+                "/comments/characters/1?username=admin",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            assert response.status_code == 200
+            assert response.json() == {
+                "items": [
+                    {
+                        "id": 2,
+                        "username": "admin",
+                        "episode_id": None,
+                        "character_id": 1,
+                        "comment": "This is a comment",
+                    },
+                    {
+                        "id": 3,
+                        "username": "admin",
+                        "episode_id": 1,
+                        "character_id": 1,
+                        "comment": "This is a comment",
+                    },
+                ],
+                "total": 2,
+                "page": 1,
+                "size": 50,
+            }
+
+        def test_get_all_comments_of_character_in_episode_episode_not_found(self, access_token):
+            response = client.get(
+                "/comments/episodes/100/1",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            assert response.status_code == 404
+            assert response.json()["detail"] == "Episode does not exist."
+
+        def test_get_all_comments_of_character_in_episode_character_not_found(self, access_token):
+            response = client.get(
+                "/comments/episodes/1/1000",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            assert response.status_code == 404
+            assert response.json()["detail"] == "Character id 1000 is not in episode id 1."
+
+        def test_get_all_comments_of_character_in_episode_success(self, access_token):
+            response = client.get(
+                "/comments/episodes/1/1",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            assert response.status_code == 200
+            assert response.json() == {
+                "items": [
+                    {
+                        "id": 3,
+                        "username": "admin",
+                        "episode_id": 1,
+                        "character_id": 1,
+                        "comment": "This is a comment",
+                    },
+                ],
+                "total": 1,
+                "page": 1,
+                "size": 50,
+            }
+
+        def test_get_all_comments_of_character_in_episode_with_filter_success(self, access_token):
+            response = client.get(
+                "/comments/episodes/1/1?username=admin",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            assert response.status_code == 200
+            assert response.json() == {
+                "items": [
+                    {
+                        "id": 3,
+                        "username": "admin",
+                        "episode_id": 1,
+                        "character_id": 1,
+                        "comment": "This is a comment",
+                    },
+                ],
+                "total": 1,
+                "page": 1,
+                "size": 50,
+            }
+
+        def test_get_comment_by_id_not_found(self, access_token):
+            response = client.get(
+                "/comments/100",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            assert response.status_code == 404
+            assert response.json()["detail"] == "Comment does not exist."
+
+        def test_get_comment_by_id_success(self, access_token):
+            response = client.get(
+                "/comments/1",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            assert response.status_code == 200
+            assert response.json() == {
+                "id": 1,
+                "username": "admin",
+                "episode_id": 1,
+                "character_id": None,
+                "comment": "This is a new comment",
+            }
+
+        def test_delete_comment_by_id_success(self, access_token):
+            response = client.delete(
+                "/comments/3",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            assert response.status_code == 204
+            assert response.text == '"Comment id 3 has been deleted."'

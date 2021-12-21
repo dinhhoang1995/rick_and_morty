@@ -367,7 +367,7 @@ class Comment(BaseModel):
         validate_assignment = True
 
 
-@app.post("/comments/episodes/{episode_id}")
+@app.post("/comments/episodes/{episode_id}", status_code=201)
 def create_comment_episode(body: CommentBody, episode_id: int, current_user: User = Depends(get_current_user)) -> int:
     """
     Create comment on an episode
@@ -375,9 +375,6 @@ def create_comment_episode(body: CommentBody, episode_id: int, current_user: Use
     :param body: body config
     :return: comment_id
     """
-    select_user_exists_query = f"SELECT EXISTS(SELECT username FROM users WHERE username = '{current_user.username}')"
-    if fetchall_results(select_user_exists_query, app.get_db_connection())[0][0] == 0:
-        raise HTTPException(status_code=404, detail="Username does not exist.")
     select_episode_id_exists_query = f"SELECT EXISTS(SELECT id FROM episodes WHERE id = '{episode_id}')"
     if fetchall_results(select_episode_id_exists_query, app.get_db_connection())[0][0] == 0:
         raise HTTPException(status_code=404, detail="Episode does not exist.")
@@ -385,7 +382,7 @@ def create_comment_episode(body: CommentBody, episode_id: int, current_user: Use
     return insert_into_table(insert_comment_query, app.get_db_connection())
 
 
-@app.post("/comments/characters/{character_id}")
+@app.post("/comments/characters/{character_id}", status_code=201)
 def create_comment_character(
     body: CommentBody, character_id: int, current_user: User = Depends(get_current_user)
 ) -> int:
@@ -395,17 +392,14 @@ def create_comment_character(
     :param body: body config
     :return: comment_id
     """
-    select_user_exists_query = f"SELECT EXISTS(SELECT username FROM users WHERE username = '{current_user.username}')"
-    if fetchall_results(select_user_exists_query, app.get_db_connection())[0][0] == 0:
-        raise HTTPException(status_code=404, detail="Username does not exist.")
     select_character_id_exists_query = f"SELECT EXISTS(SELECT id FROM characters WHERE id = '{character_id}')"
     if fetchall_results(select_character_id_exists_query, app.get_db_connection())[0][0] == 0:
-        raise HTTPException(status_code=404, detail="Episode does not exist.")
+        raise HTTPException(status_code=404, detail="Character does not exist.")
     insert_comment_query = f"INSERT INTO comments (username, character_id, comment) VALUES ('{current_user.username}', '{character_id}', '{body.comment}')"
     return insert_into_table(insert_comment_query, app.get_db_connection())
 
 
-@app.post("/comments/episodes/{episode_id}/{character_id}")
+@app.post("/comments/episodes/{episode_id}/{character_id}", status_code=201)
 def create_comment_on_character_in_episode(
     body: CommentBody, episode_id: int, character_id: int, current_user: User = Depends(get_current_user)
 ) -> int:
@@ -416,9 +410,6 @@ def create_comment_on_character_in_episode(
     :param body: body config
     :return: comment_id
     """
-    select_user_exists_query = f"SELECT EXISTS(SELECT username FROM users WHERE username = '{current_user.username}')"
-    if fetchall_results(select_user_exists_query, app.get_db_connection())[0][0] == 0:
-        raise HTTPException(status_code=404, detail="Username does not exist.")
     select_episode_id_exists_query = f"SELECT EXISTS(SELECT id FROM episodes WHERE id = '{episode_id}')"
     if fetchall_results(select_episode_id_exists_query, app.get_db_connection())[0][0] == 0:
         raise HTTPException(status_code=404, detail="Episode does not exist.")
@@ -597,7 +588,7 @@ def get_comment_by_id(comment_id: int, current_user: User = Depends(get_current_
     )
 
 
-@app.delete("/comments/{comment_id}")
+@app.delete("/comments/{comment_id}", status_code=204)
 def delete_comment_by_id(comment_id: int, current_user: User = Depends(get_current_user)) -> str:
     """
     Delete comment by id
