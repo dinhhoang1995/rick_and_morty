@@ -49,7 +49,7 @@ class TestMainApi:
         assert response.status_code == 200
         return response.json()["access_token"]
 
-    class TestGetAllEpisodes:
+    class TestEpisodes:
         def test_get_all_episodes(self, access_token):
             response = client.get("/episodes", headers={"Authorization": f"Bearer {access_token}"})
             assert response.status_code == 200
@@ -69,7 +69,7 @@ class TestMainApi:
             assert response.status_code == 500
             assert response.json()["detail"] == "Error while fetching records: fake message"
 
-    class TestGetAllCharacters:
+    class TestCharacters:
         def test_get_all_characters(self, access_token):
             response = client.get("/characters", headers={"Authorization": f"Bearer {access_token}"})
             assert response.status_code == 200
@@ -109,3 +109,93 @@ class TestMainApi:
             response = client.get("/characters", headers={"Authorization": f"Bearer {access_token}"})
             assert response.status_code == 500
             assert response.json()["detail"] == "Error while fetching records: fake message"
+
+    class TestUsers:
+        def test_get_all_users(self, access_token):
+            response = client.get("/users", headers={"Authorization": f"Bearer {access_token}"})
+            assert response.status_code == 200
+            assert response.json() == ["admin"]
+
+        def test_create_user_password_error(self, access_token):
+            response = client.post(
+                "/users",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"username": "dhtran", "password": "toto"},
+            )
+            assert response.status_code == 400
+            assert (
+                response.json()["detail"]
+                == "Password must have minimum eight characters, at least one uppercase letter, one lowercase letter, one number and one special character."
+            )
+
+        def test_create_user_success(self, access_token):
+            response = client.post(
+                "/users",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"username": "dhtran", "password": "Azerty123*"},
+            )
+            assert response.status_code == 201
+            assert response.text == '"dhtran"'
+
+        def test_create_user_duplicated(self, access_token):
+            response = client.post(
+                "/users",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"username": "dhtran", "password": "Azerty123*"},
+            )
+            assert response.status_code == 409
+            assert response.json()["detail"] == "User exists."
+
+        def test_get_user_not_found(self, access_token):
+            response = client.get("/users/toto", headers={"Authorization": f"Bearer {access_token}"})
+            assert response.status_code == 404
+            assert response.json()["detail"] == "User does not exist."
+
+        def test_get_user_success(self, access_token):
+            response = client.get("/users/dhtran", headers={"Authorization": f"Bearer {access_token}"})
+            assert response.status_code == 200
+            assert response.json() == {"username": "dhtran"}
+
+        def test_update_user_password_error(self, access_token):
+            response = client.put(
+                "/users/dhtran",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"old_password": "Azerty123*", "new_password": "toto"},
+            )
+            assert response.status_code == 400
+            assert (
+                response.json()["detail"]
+                == "New password must have minimum eight characters, at least one uppercase letter, one lowercase letter, one number and one special character."
+            )
+
+        def test_update_user_not_found(self, access_token):
+            response = client.put(
+                "/users/toto",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"old_password": "Azerty123*", "new_password": "Xyzabc123*"},
+            )
+            assert response.status_code == 404
+            assert response.json()["detail"] == "User does not exist."
+
+        def test_update_user_old_password_error(self, access_token):
+            response = client.put(
+                "/users/dhtran",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"old_password": "toto", "new_password": "Xyzabc123*"},
+            )
+            assert response.status_code == 400
+            assert response.json()["detail"] == "Old password is not correct."
+
+        def test_update_user_success(self, access_token):
+            response = client.put(
+                "/users/dhtran",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"old_password": "Azerty123*", "new_password": "Xyzabc123*"},
+            )
+            assert response.status_code == 200
+            assert response.json() == {"username": "dhtran"}
+
+        def test_delete_user_success(self, access_token):
+            response = client.delete("/users/dhtran", headers={"Authorization": f"Bearer {access_token}"})
+            assert response.status_code == 204
+            assert response.text == '"dhtran has been deleted."'

@@ -194,7 +194,7 @@ def get_all_users(current_user: User = Depends(get_current_user)) -> list:
     return [result[0] for result in results]
 
 
-@app.post("/users")
+@app.post("/users", status_code=201)
 def create_user(user: User, current_user: User = Depends(get_current_user)) -> str:
     """
     Create user
@@ -249,13 +249,13 @@ def update_user(username: str, body: UpdatePassword, current_user: User = Depend
     if not users:
         raise HTTPException(status_code=404, detail="User does not exist.")
     if users[0][1] != body.old_password:
-        raise HTTPException(status_code=400, detail="Old password is not correct")
+        raise HTTPException(status_code=400, detail="Old password is not correct.")
     update_user_query = f"UPDATE users SET password = '{body.new_password}' WHERE username = '{username}'"
     fetchall_results(update_user_query, app.get_db_connection())
     return {"username": username}
 
 
-@app.delete("/users/{username}")
+@app.delete("/users/{username}", status_code=204)
 def delete_user(username: str, current_user: User = Depends(get_current_user)) -> str:
     """
     Delete user
