@@ -66,7 +66,7 @@ Set database name:
 ```commandline
 export TEST_DB_NAME="rick_and_morty_test"
 ```
-In python folder, run tests with:
+In root folder, run tests with:
 ```commandline
-pytest tests
+pytest --cov-report term --cov=python python/tests
 ```

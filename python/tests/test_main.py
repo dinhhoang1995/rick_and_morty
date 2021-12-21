@@ -10,7 +10,15 @@ from python.main import app
 
 database_name = os.getenv("TEST_DB_NAME", "rick_and_morty_test")
 
-subprocess.run(["python", "../../import_episodes_characters.py", "-n", database_name, "--test"])
+subprocess.run(
+    [
+        "python",
+        os.path.join(os.path.dirname(os.path.realpath(__file__))[:-13], "import_episodes_characters.py"),
+        "-n",
+        database_name,
+        "--test",
+    ]
+)
 
 connection = connect(
     host=os.getenv("DB_HOST", "localhost"),
