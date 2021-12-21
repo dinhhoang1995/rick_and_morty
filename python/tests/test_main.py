@@ -637,3 +637,20 @@ class TestMainApi:
             )
             assert response.status_code == 204
             assert response.text == '"Comment id 3 has been deleted."'
+
+    class TestExportCsv:
+        def test_export_comments_csv(self, access_token):
+            response = client.get(
+                "/export_csv",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            assert response.status_code == 200
+            assert response.headers == {
+                "content-type": "text/csv; charset=utf-8",
+                "Content-Disposition": "attachment; filename=exported_comments.csv",
+            }
+            assert (
+                response.text == "id,username,episode_id,character_id,comment\n"
+                "1,admin,1.0,,This is a new comment\n"
+                "2,admin,,1.0,This is a comment\n"
+            )

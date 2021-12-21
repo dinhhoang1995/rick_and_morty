@@ -24,7 +24,7 @@ pip3 install -q -r tests_requirements.txt
 ```
 Format files with the following cml:
 ```commandline
-black -l 120 python
+black -l 120 python import_episodes_characters.py
 ```
 
 ## Set environment variables
@@ -48,7 +48,10 @@ Set database name:
 ```commandline
 export DB_NAME="rick_and_morty"
 ```
-
+Set test database name:
+```commandline
+export TEST_DB_NAME="rick_and_morty_test"
+```
 ## Create database and add tables
 Run script with following cml:
 ```commandline
@@ -56,16 +59,16 @@ python import_episodes_characters.py -n rick_and_morty
 ```
 
 ## Run API server
-Run the server with:
+In python directory, run the server with:
 ```commandline
 python main.py
 ```
+Connect to Swagger UI at:
+```commandline
+http://127.0.0.1:8000/docs
+```
 
 ## Run pytest
-Set database name:
-```commandline
-export TEST_DB_NAME="rick_and_morty_test"
-```
 In root folder, run tests with:
 ```commandline
 pytest --cov-report term --cov=python python/tests
