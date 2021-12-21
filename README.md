@@ -73,3 +73,14 @@ In root folder, run tests with:
 ```commandline
 pytest --cov-report term --cov=python python/tests
 ```
+Code coverage by tests:
+```commandline
+Name                        Stmts   Miss  Cover
+-----------------------------------------------
+python/__init__.py              0      0   100%
+python/main.py                315     10    97%
+python/tests/__init__.py        0      0   100%
+python/tests/test_main.py     207      0   100%
+-----------------------------------------------
+TOTAL                         522     10    98%
+```
