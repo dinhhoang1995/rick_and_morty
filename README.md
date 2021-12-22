@@ -1,7 +1,7 @@
 # rick_and_morty
 Jellysmack technical test
 
-## Pull and run mysql with dockerdocker pull mysql
+## Pull and run mysql with docker
 
 Pull mysql docker image
 ```commandline
